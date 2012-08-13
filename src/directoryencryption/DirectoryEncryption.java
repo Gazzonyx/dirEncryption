@@ -1,7 +1,6 @@
 package directoryencryption;
 
 import java.io.*;
-import java.util.ArrayList;
 import java.util.Date;
 
 /**
@@ -24,35 +23,55 @@ public class DirectoryEncryption {
     
     public boolean encryptDirectory(File directory)
     {
+        boolean returnVal = true;
+        
+        if (!directory.isDirectory())
+            return false;
+        for (File file : directory.listFiles())
+            if (!file.isDirectory())
+            {
+                if (!encryptFile(file))
+                    returnVal = false;
+            }
+            else
+                encryptDirectory(file);
+
+        return returnVal;
+    }
+    
+    public boolean encryptFile(File file)
+    {
         try
+            {invertFile(file);}
+        catch(IOException e)
         {
-            if (!directory.isDirectory())
-                return false;
-            for (File file : directory.listFiles())
-                if (!file.isDirectory())
-                    encryptFile(file);
-                else
-                    encryptDirectory(file);
-        }
-        catch(IOException ex)
-        {    
             if (debug)
-                ex.printStackTrace();
+                e.printStackTrace();
             return false;
         }
+        
         return true;
     }
     
-    public void encryptFile(File file) throws IOException
-    {invertFile(file);}
-    
-    public void decryptFile(File file) throws IOException
-    {invertFile(file);}
+    public boolean decryptFile(File file)
+    {
+        try
+            {invertFile(file);}
+        catch(IOException e)
+        {
+            if (debug)
+                e.printStackTrace();
+            return false;
+        }
+        
+        return true;
+    }
     
     /**
      * Flips ever bit in a file.
      * @param path Path to file to invert.
      * @throws IOException Throws IOException if there is an error during read or write.
+     * TODO: add file locking support (obvious joke: "just for the flock of it").
      */
     public void invertFile(File file) throws IOException
     {
@@ -60,43 +79,40 @@ public class DirectoryEncryption {
         if (file.isDirectory())
             return;
         
-        // read in file and flip the bits
         BufferedInputStream inputStream = null;
-        ArrayList<Byte> destination = new ArrayList((int)file.length());
+        BufferedOutputStream outputStream = null;
         try
         {
             inputStream = new BufferedInputStream(new FileInputStream(file));
+            File tempFile = File.createTempFile("direnc", String.valueOf(filesProcessed));
+            outputStream = new BufferedOutputStream(new FileOutputStream(tempFile));
+            tempFile.deleteOnExit();
+            
             byte[] bytes = new byte[4096];
             int numBytesRead = 0;
-            // flip each byte and put it to the destination list
+            // read each byte, flip it and write it to temp file (so we don't run out of memory on large files).
             while((numBytesRead = inputStream.read(bytes)) > -1)
-                for(int i = 0; i<numBytesRead; i++)
-                    destination.add((byte) ~bytes[i]);
+            {
+                for(int i = 0; i < numBytesRead; i++)
+                    bytes[i]= (byte)~bytes[i];
+                outputStream.write(bytes, 0, numBytesRead);
+            }
+            
+            inputStream.close();
+            outputStream.close();
+            
+            // write changes back to original file.  This saves perms that a rename won't.
+            inputStream = new BufferedInputStream(new FileInputStream(tempFile));
+            outputStream = new BufferedOutputStream(new FileOutputStream(file));
+            while((numBytesRead = inputStream.read(bytes)) > -1)
+                outputStream.write(bytes, 0, numBytesRead);
         }
         catch(IOException e)
-        {throw e;}
+            {throw e;}
         finally
         {
             if (inputStream != null)
                 inputStream.close();
-        }
-        
-        // write flipped bytes back to the file
-        // this is the slowest way to do this, but we're just testing.
-        BufferedOutputStream outputStream = null;
-        try
-        {
-            outputStream = new BufferedOutputStream(new FileOutputStream(file));
-            for (byte b : destination)
-                outputStream.write(b);
-        }
-        catch(FileNotFoundException e)
-        {
-            if (debug)
-                e.printStackTrace();
-        }
-        finally
-        {
             if (outputStream != null)
                 outputStream.close();
             bytesProcessed += file.length();
@@ -104,7 +120,7 @@ public class DirectoryEncryption {
         }
         
         // show current stats
-        if (showStatistics)
+        if (showStatistics && filesProcessed > 0)
             if (filesProcessed % 250 == 0)
                 showCurrentStats();
     }
