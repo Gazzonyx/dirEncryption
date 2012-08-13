@@ -15,10 +15,12 @@ public class DirectoryEncryption {
     private long filesProcessed = 0;
     private static Date startTime;
     
+    
     public DirectoryEncryption()
     {
         startTime = new Date();
     }
+    
     
     public boolean encryptDirectory(File directory)
     {
